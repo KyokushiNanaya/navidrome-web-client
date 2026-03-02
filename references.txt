@@ -1,0 +1,2 @@
+feishin api controller: https://github.com/jeffvli/feishin/blob/development/src/renderer/api/navidrome/navidrome-api.ts
+chinese api doc(outdated): https://music.aqzscn.cn/docs/notes/services/navidrome#login-%E7%99%BB%E5%BD%95
