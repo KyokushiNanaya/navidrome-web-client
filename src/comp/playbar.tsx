@@ -13,9 +13,11 @@ type PlayBarProps = {
 	onNext: () => void;
 	onPlayPause: () => void;
 	onPrevious: () => void;
+	onToggleRepeat: () => void;
 	onSeek: (value: number) => void;
 	onToggleRandom: () => void;
 	onVolumeChange: (value: number) => void;
+	repeatMode: "all" | "off" | "one";
 	songAlbum?: string;
 	songArtist?: string;
 	songTitle?: string;
@@ -46,9 +48,11 @@ export default function PlayBar({
 	onNext,
 	onPlayPause,
 	onPrevious,
+	onToggleRepeat,
 	onSeek,
 	onToggleRandom,
 	onVolumeChange,
+	repeatMode,
 	songAlbum,
 	songArtist,
 	songTitle,
@@ -61,7 +65,7 @@ export default function PlayBar({
 	return (
 		<footer className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-800/80 bg-zinc-900/95 backdrop-blur">
 			<div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-3">
-				<div className="flex items-center justify-between gap-3">
+				<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 					<div className="flex min-w-0 items-center gap-3">
 						<div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-zinc-800 bg-zinc-950">
 							{coverArtUrl ? (
@@ -86,6 +90,18 @@ export default function PlayBar({
 					</div>
 
 					<div className="flex flex-wrap items-center justify-end gap-2">
+						<button
+							aria-label="Cycle repeat mode"
+							className={`rounded-md border px-3 py-1.5 text-sm transition ${
+								repeatMode === "off"
+									? "border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+									: "border-emerald-400/60 bg-emerald-500/15 text-emerald-300"
+							}`}
+							onClick={onToggleRepeat}
+							type="button"
+						>
+							Repeat: {repeatMode}
+						</button>
 						<button
 							aria-label="Toggle random playback"
 							className={`rounded-md border px-3 py-1.5 text-sm transition ${
@@ -134,7 +150,7 @@ export default function PlayBar({
 						<div className="flex items-center gap-2 rounded-md border border-zinc-700 px-2 py-1.5">
 							<span className="text-xs text-zinc-400">Vol</span>
 							<input
-								className="h-1 w-24 cursor-pointer accent-emerald-500"
+								className="h-1 w-20 cursor-pointer accent-emerald-500 sm:w-24"
 								max={100}
 								min={0}
 								onChange={(event) => onVolumeChange(Number(event.target.value) / 100)}
