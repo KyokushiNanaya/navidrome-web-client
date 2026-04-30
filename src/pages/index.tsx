@@ -1,6 +1,16 @@
 import { FormEvent, useState } from "react";
+import { useRouter } from "next/router";
+
+import {
+  buildSubsonicCredential,
+  isValidAuthenticateResponse,
+  NAVIDROME_SESSION_STORAGE_KEY,
+  normalizeServerUrl,
+  NavidromeAuthenticateResponse,
+} from "@/lib/navidrome-session";
 
 export default function Home() {
+  const router = useRouter();
   const [url, setUrl] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -42,7 +52,27 @@ export default function Home() {
         return;
       }
 
-      setResult(data.data ?? null);
+      const authData = data.data as NavidromeAuthenticateResponse;
+      if (!isValidAuthenticateResponse(authData)) {
+        setError("Login succeeded but response did not contain stream credentials");
+        return;
+      }
+
+      const finalUsername = authData.username ?? username;
+      const session = {
+        serverUrl: normalizeServerUrl(url),
+        streamCredential: buildSubsonicCredential(
+          finalUsername,
+          authData.subsonicSalt,
+          authData.subsonicToken,
+        ),
+        token: authData.token,
+        username: finalUsername,
+      };
+
+      window.localStorage.setItem(NAVIDROME_SESSION_STORAGE_KEY, JSON.stringify(session));
+      setResult(authData);
+      await router.push("/player");
     } catch {
       setError("Unable to call API route");
     } finally {
