@@ -1,6 +1,11 @@
 import type { NextApiRequest, NextApiResponse } from "next";
-import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+
+export const config = {
+	api: {
+		responseLimit: false,
+	},
+};
 
 type StreamQuery = {
 	credential?: string | string[];
@@ -84,7 +89,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 		}
 
 		res.status(upstream.status);
-		await pipeline(Readable.fromWeb(body), res);
+		await pipeline(body as unknown as NodeJS.ReadableStream, res);
 		return;
 	} catch {
 		return res.status(502).json({ error: "Failed to reach Navidrome stream endpoint" });
