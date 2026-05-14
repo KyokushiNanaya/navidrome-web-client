@@ -110,22 +110,37 @@ export const asSongList = (value: unknown): Song[] => {
 	if (Array.isArray(value)) {
 		return value
 			.filter((item): item is Record<string, unknown> => Boolean(item && typeof item === "object"))
-			.map((item) => ({
-				album: typeof item.album === "string" ? item.album : undefined,
-				artist: typeof item.artist === "string" ? item.artist : undefined,
-				coverArtId:
-					typeof item.coverArtId === "string"
-						? item.coverArtId
-						: typeof item.albumId === "string"
-							? item.albumId
-							: typeof item.id === "string"
-								? item.id
-								: undefined,
-				duration: typeof item.duration === "number" ? item.duration : undefined,
-				id: String(item.id ?? ""),
-				starred: item.starred === true || item.starred === 1,
-				title: typeof item.title === "string" ? item.title : "Untitled",
-			}))
+			.map((item) => {
+				const playableId =
+					typeof item.mediaFileId === "string"
+						? item.mediaFileId
+						: typeof item.songId === "string"
+							? item.songId
+							: typeof item.mediaFile?.id === "string"
+								? item.mediaFile.id
+								: typeof item.media_file_id === "string"
+									? item.media_file_id
+									: typeof item.song_id === "string"
+										? item.song_id
+										: typeof item.id === "string"
+											? item.id
+											: undefined;
+
+				return {
+					album: typeof item.album === "string" ? item.album : undefined,
+					artist: typeof item.artist === "string" ? item.artist : undefined,
+					coverArtId:
+						typeof item.coverArtId === "string"
+							? item.coverArtId
+							: typeof item.albumId === "string"
+								? item.albumId
+								: playableId,
+					duration: typeof item.duration === "number" ? item.duration : undefined,
+					id: playableId ?? "",
+					starred: item.starred === true || item.starred === 1,
+					title: typeof item.title === "string" ? item.title : "Untitled",
+				};
+			})
 			.filter((song) => song.id.length > 0);
 	}
 
