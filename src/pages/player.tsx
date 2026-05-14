@@ -15,6 +15,9 @@ import type {
 	DiscoverySortField,
 	DiscoveryView,
 	DrilldownDetail,
+	EqualizerBand,
+	EqualizerPreset,
+	EqualizerState,
 	Song,
 } from "@/lib/player-types";
 import { DISCOVERY_VIEWS } from "@/lib/player-types";
@@ -32,6 +35,7 @@ import {
 	DISCOVERY_SORT_OPTIONS,
 	getTotalCountFromHeaders,
 	isEditableTarget,
+	PLAYER_EQUALIZER_STORAGE_KEY,
 	PLAYER_VOLUME_STORAGE_KEY,
 	sortDiscoveryItems,
 	toOptionalNumber,
@@ -45,9 +49,73 @@ type QueueResponse = {
 	position?: number;
 };
 
+const EQUALIZER_MAX_GAIN = 12;
+
+const DEFAULT_EQUALIZER_BANDS: EqualizerBand[] = [
+	{ frequency: 31, gain: 0, label: "31" },
+	{ frequency: 62, gain: 0, label: "62" },
+	{ frequency: 125, gain: 0, label: "125" },
+	{ frequency: 250, gain: 0, label: "250" },
+	{ frequency: 500, gain: 0, label: "500" },
+	{ frequency: 1000, gain: 0, label: "1k" },
+	{ frequency: 2000, gain: 0, label: "2k" },
+	{ frequency: 4000, gain: 0, label: "4k" },
+	{ frequency: 8000, gain: 0, label: "8k" },
+	{ frequency: 16000, gain: 0, label: "16k" },
+];
+
+const DEFAULT_EQUALIZER_STATE: EqualizerState = {
+	bands: DEFAULT_EQUALIZER_BANDS,
+	enabled: true,
+	preset: "Flat",
+};
+
+const EQUALIZER_PRESETS: EqualizerPreset[] = [
+	{ name: "Flat", gains: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] },
+	{ name: "Bass Boost", gains: [7, 6, 5, 3, 1, 0, 0, 0, 0, 0] },
+	{ name: "Treble Boost", gains: [0, 0, 0, 0, 1, 2, 4, 5, 6, 7] },
+	{ name: "Rock", gains: [5, 4, 3, 1, -1, -1, 1, 3, 4, 5] },
+	{ name: "Pop", gains: [-1, 2, 4, 5, 3, 0, -1, 2, 3, 4] },
+	{ name: "Jazz", gains: [3, 2, 1, 2, -1, -1, 0, 1, 2, 3] },
+	{ name: "Classical", gains: [4, 3, 2, 1, -1, -1, 0, 2, 3, 4] },
+	{ name: "Vocal", gains: [-2, -1, 0, 2, 4, 5, 4, 2, 0, -1] },
+];
+
+const EQUALIZER_PRESET_NAMES = EQUALIZER_PRESETS.map((preset) => preset.name);
+
+const clampEqualizerGain = (value: number) => Math.max(-EQUALIZER_MAX_GAIN, Math.min(EQUALIZER_MAX_GAIN, value));
+
+const normalizeEqualizerState = (value: unknown): EqualizerState => {
+	if (!value || typeof value !== "object") {
+		return DEFAULT_EQUALIZER_STATE;
+	}
+
+	const raw = value as Partial<EqualizerState> & { bands?: unknown };
+	const rawBands = Array.isArray(raw.bands) ? raw.bands : [];
+
+	return {
+		bands: DEFAULT_EQUALIZER_BANDS.map((defaultBand, index) => {
+			const candidate = rawBands[index];
+			const gain = candidate && typeof candidate === "object" && typeof (candidate as { gain?: unknown }).gain === "number"
+				? (candidate as { gain: number }).gain
+				: defaultBand.gain;
+
+			return {
+				...defaultBand,
+				gain: clampEqualizerGain(gain),
+			};
+		}),
+		enabled: raw.enabled !== false,
+		preset: typeof raw.preset === "string" && EQUALIZER_PRESET_NAMES.includes(raw.preset) ? raw.preset : "Custom",
+	};
+};
+
 export default function PlayerPage() {
 	const router = useRouter();
 	const audioRef = useRef<HTMLAudioElement | null>(null);
+	const audioContextRef = useRef<AudioContext | null>(null);
+	const equalizerFiltersRef = useRef<BiquadFilterNode[]>([]);
+	const equalizerInitializedRef = useRef(false);
 	const queuePersistTimerRef = useRef<null | ReturnType<typeof setTimeout>>(null);
 	const hasLoadedQueueRef = useRef(false);
 
@@ -64,6 +132,7 @@ export default function PlayerPage() {
 	const [pendingSeekSeconds, setPendingSeekSeconds] = useState<null | number>(null);
 	const [repeatMode, setRepeatMode] = useState<RepeatMode>("off");
 	const [volume, setVolume] = useState(0.8);
+	const [equalizer, setEqualizer] = useState<EqualizerState>(DEFAULT_EQUALIZER_STATE);
 
 	// App loading
 	const [loading, setLoading] = useState(true);
@@ -517,6 +586,19 @@ export default function PlayerPage() {
 		setCurrentTime(value);
 	}, []);
 
+	const ensureAudioContextResumed = useCallback(async () => {
+		const context = audioContextRef.current;
+		if (!context || context.state === "running") {
+			return;
+		}
+
+		try {
+			await context.resume();
+		} catch {
+			// Ignore resume failures and let normal playback handling reflect the state.
+		}
+	}, []);
+
 	const handlePrevious = useCallback(() => {
 		if (!currentSong) return;
 		if (currentTime > 3) { handleSeek(0); return; }
@@ -541,8 +623,13 @@ export default function PlayerPage() {
 	const handlePlayPause = useCallback(() => {
 		const audio = audioRef.current;
 		if (!audio) return;
-		if (audio.paused) void audio.play(); else audio.pause();
-	}, []);
+		if (audio.paused) {
+			void ensureAudioContextResumed().then(() => audio.play()).catch(() => setIsPlaying(false));
+			return;
+		}
+
+		audio.pause();
+	}, [ensureAudioContextResumed]);
 
 	const handleSongEnded = () => {
 		if (!currentSong) { setIsPlaying(false); return; }
@@ -551,7 +638,7 @@ export default function PlayerPage() {
 			const audio = audioRef.current;
 			if (!audio) { setIsPlaying(false); return; }
 			audio.currentTime = 0;
-			void audio.play().catch(() => setIsPlaying(false));
+			void ensureAudioContextResumed().then(() => audio.play()).catch(() => setIsPlaying(false));
 			return;
 		}
 
@@ -584,7 +671,42 @@ export default function PlayerPage() {
 		document.body.removeChild(link);
 	};
 
-	// ─── Volume persistence ───────────────────────────────────────────────────────
+	const handleEqualizerBandChange = useCallback((index: number, gain: number) => {
+		setEqualizer((current) => ({
+			...current,
+			bands: current.bands.map((band, bandIndex) => (
+				bandIndex === index ? { ...band, gain: clampEqualizerGain(gain) } : band
+			)),
+			preset: "Custom",
+		}));
+	}, []);
+
+	const handleEqualizerEnabledChange = useCallback((enabled: boolean) => {
+		setEqualizer((current) => ({ ...current, enabled }));
+	}, []);
+
+	const handleEqualizerReset = useCallback(() => {
+		setEqualizer(DEFAULT_EQUALIZER_STATE);
+	}, []);
+
+	const handleEqualizerPresetChange = useCallback((presetName: string) => {
+		const preset = EQUALIZER_PRESETS.find((item) => item.name === presetName);
+		if (!preset) {
+			return;
+		}
+
+		setEqualizer((current) => ({
+			...current,
+			bands: current.bands.map((band, index) => ({
+				...band,
+				gain: clampEqualizerGain(preset.gains[index] ?? 0),
+			})),
+			enabled: true,
+			preset: preset.name,
+		}));
+	}, []);
+
+	// ─── Volume and equalizer persistence ───────────────────────────────────────
 
 	useEffect(() => {
 		const stored = window.localStorage.getItem(PLAYER_VOLUME_STORAGE_KEY);
@@ -594,10 +716,71 @@ export default function PlayerPage() {
 	}, []);
 
 	useEffect(() => {
+		const stored = window.localStorage.getItem(PLAYER_EQUALIZER_STORAGE_KEY);
+		if (!stored) return;
+
+		try {
+			setEqualizer(normalizeEqualizerState(JSON.parse(stored)));
+		} catch {
+			setEqualizer(DEFAULT_EQUALIZER_STATE);
+		}
+	}, []);
+
+	useEffect(() => {
 		window.localStorage.setItem(PLAYER_VOLUME_STORAGE_KEY, String(volume));
 		const audio = audioRef.current;
 		if (audio) audio.volume = volume;
 	}, [volume]);
+
+	useEffect(() => {
+		window.localStorage.setItem(PLAYER_EQUALIZER_STORAGE_KEY, JSON.stringify(equalizer));
+	}, [equalizer]);
+
+	useEffect(() => {
+		const audio = audioRef.current;
+		if (!audio || equalizerInitializedRef.current) {
+			return;
+		}
+
+		const AudioContextClass = window.AudioContext ?? (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+		if (!AudioContextClass) {
+			return;
+		}
+
+		try {
+			const context = new AudioContextClass();
+			const source = context.createMediaElementSource(audio);
+			const filters = DEFAULT_EQUALIZER_BANDS.map((band, index) => {
+				const filter = context.createBiquadFilter();
+				filter.frequency.value = band.frequency;
+				filter.gain.value = band.gain;
+				filter.Q.value = 1.2;
+				filter.type = index === 0 ? "lowshelf" : index === DEFAULT_EQUALIZER_BANDS.length - 1 ? "highshelf" : "peaking";
+				return filter;
+			});
+
+			source.connect(filters[0]!);
+			for (let index = 0; index < filters.length - 1; index += 1) {
+				filters[index]!.connect(filters[index + 1]!);
+			}
+			filters[filters.length - 1]!.connect(context.destination);
+
+			audioContextRef.current = context;
+			equalizerFiltersRef.current = filters;
+			equalizerInitializedRef.current = true;
+		} catch {
+			equalizerFiltersRef.current = [];
+		}
+
+		return undefined;
+	}, []);
+
+	useEffect(() => {
+		equalizerFiltersRef.current.forEach((filter, index) => {
+			const gain = equalizer.enabled ? equalizer.bands[index]?.gain ?? 0 : 0;
+			filter.gain.value = clampEqualizerGain(gain);
+		});
+	}, [equalizer]);
 
 	useEffect(() => {
 		setCurrentTime(0);
@@ -640,8 +823,10 @@ export default function PlayerPage() {
 	useEffect(() => {
 		const audio = audioRef.current;
 		if (!audio || !streamUrl) { setIsPlaying(false); return; }
-		if (isPlaying) void audio.play().catch(() => setIsPlaying(false));
-	}, [isPlaying, streamUrl]);
+		if (isPlaying) {
+			void ensureAudioContextResumed().then(() => audio.play()).catch(() => setIsPlaying(false));
+		}
+	}, [ensureAudioContextResumed, isPlaying, streamUrl]);
 
 	// ─── Keyboard shortcuts ───────────────────────────────────────────────────────
 
@@ -684,7 +869,10 @@ export default function PlayerPage() {
 
 		navigator.mediaSession.setActionHandler("nexttrack", handleNext);
 		navigator.mediaSession.setActionHandler("pause", () => audioRef.current?.pause());
-		navigator.mediaSession.setActionHandler("play", () => { setIsPlaying(true); void audioRef.current?.play(); });
+		navigator.mediaSession.setActionHandler("play", () => {
+			setIsPlaying(true);
+			void ensureAudioContextResumed().then(() => audioRef.current?.play()).catch(() => setIsPlaying(false));
+		});
 		navigator.mediaSession.setActionHandler("previoustrack", handlePrevious);
 		navigator.mediaSession.setActionHandler("seekto", (d) => { if (typeof d.seekTime === "number") handleSeek(d.seekTime); });
 
@@ -695,7 +883,7 @@ export default function PlayerPage() {
 			navigator.mediaSession.setActionHandler("previoustrack", null);
 			navigator.mediaSession.setActionHandler("seekto", null);
 		};
-	}, [coverArtUrl, currentSong, handleNext, handlePrevious, handleSeek, isPlaying]);
+	}, [coverArtUrl, currentSong, ensureAudioContextResumed, handleNext, handlePrevious, handleSeek, isPlaying]);
 
 	// ─── Audio element event handlers ─────────────────────────────────────────────
 
@@ -1199,9 +1387,17 @@ export default function PlayerPage() {
 				coverArtUrl={coverArtUrl}
 				currentTime={currentTime}
 				duration={duration}
+				equalizerBands={equalizer.bands}
+				equalizerEnabled={equalizer.enabled}
+				equalizerPreset={equalizer.preset}
+				equalizerPresets={EQUALIZER_PRESETS}
 				isPlaying={isPlaying}
 				isRandom={isRandom}
 				onDownload={handleDownload}
+				onEqualizerBandChange={handleEqualizerBandChange}
+				onEqualizerEnabledChange={handleEqualizerEnabledChange}
+				onEqualizerPresetChange={handleEqualizerPresetChange}
+				onEqualizerReset={handleEqualizerReset}
 				onNext={handleNext}
 				onPlayPause={handlePlayPause}
 				onPrevious={handlePrevious}

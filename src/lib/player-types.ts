@@ -80,3 +80,20 @@ export type LyricsData = {
 	title?: string;
 	value?: string;
 };
+
+export type EqualizerBand = {
+	frequency: number;
+	gain: number;
+	label: string;
+};
+
+export type EqualizerState = {
+	bands: EqualizerBand[];
+	enabled: boolean;
+	preset: string;
+};
+
+export type EqualizerPreset = {
+	gains: number[];
+	name: string;
+};

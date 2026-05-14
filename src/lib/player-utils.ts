@@ -11,6 +11,7 @@ import type {
 export const DISCOVERY_PAGE_SIZE = 30;
 
 export const PLAYER_VOLUME_STORAGE_KEY = "navidrome-player-volume";
+export const PLAYER_EQUALIZER_STORAGE_KEY = "navidrome-player-equalizer";
 
 export const DISCOVERY_QUERY_CONFIG: Record<DiscoveryView, DiscoveryQueryConfig> = {
 	Albums: {

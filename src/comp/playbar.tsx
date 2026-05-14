@@ -1,4 +1,7 @@
+import { useState } from "react";
 import Image from "next/image";
+
+import type { EqualizerBand, EqualizerPreset } from "@/lib/player-types";
 
 type PlayBarProps = {
 	canGoNext: boolean;
@@ -7,9 +10,17 @@ type PlayBarProps = {
 	coverArtUrl?: string;
 	currentTime: number;
 	duration: number;
+	equalizerBands: EqualizerBand[];
+	equalizerEnabled: boolean;
+	equalizerPreset: string;
+	equalizerPresets: EqualizerPreset[];
 	isPlaying: boolean;
 	isRandom: boolean;
 	onDownload: () => void;
+	onEqualizerBandChange: (index: number, gain: number) => void;
+	onEqualizerEnabledChange: (enabled: boolean) => void;
+	onEqualizerPresetChange: (preset: string) => void;
+	onEqualizerReset: () => void;
 	onNext: () => void;
 	onPlayPause: () => void;
 	onPrevious: () => void;
@@ -42,9 +53,17 @@ export default function PlayBar({
 	coverArtUrl,
 	currentTime,
 	duration,
+	equalizerBands,
+	equalizerEnabled,
+	equalizerPreset,
+	equalizerPresets,
 	isPlaying,
 	isRandom,
 	onDownload,
+	onEqualizerBandChange,
+	onEqualizerEnabledChange,
+	onEqualizerPresetChange,
+	onEqualizerReset,
 	onNext,
 	onPlayPause,
 	onPrevious,
@@ -58,6 +77,7 @@ export default function PlayBar({
 	songTitle,
 	volume,
 }: PlayBarProps) {
+	const [showEqualizer, setShowEqualizer] = useState(false);
 	const max = duration > 0 ? duration : 0;
 	const value = Math.min(currentTime, max || 0);
 	const safeVolume = Math.max(0, Math.min(1, volume));
@@ -65,6 +85,76 @@ export default function PlayBar({
 	return (
 		<footer className="fixed bottom-0 left-0 right-0 z-50 border-t border-zinc-800/80 bg-zinc-900/95 backdrop-blur">
 			<div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-4 py-3">
+				{showEqualizer ? (
+					<div className="rounded-xl border border-zinc-800 bg-zinc-950/90 p-3">
+						<div className="flex flex-wrap items-center justify-between gap-2">
+							<div>
+								<p className="text-sm font-semibold text-zinc-100">10-Band Equalizer</p>
+								<p className="text-xs text-zinc-500">Adjust gain from -12 dB to +12 dB.</p>
+							</div>
+							<div className="flex flex-wrap items-center gap-2">
+								<label className="flex items-center gap-2 rounded-md border border-zinc-700 px-2 py-1.5 text-xs text-zinc-400">
+									Preset
+									<select
+										className="bg-zinc-950 text-sm text-zinc-100 outline-none"
+										onChange={(event) => onEqualizerPresetChange(event.target.value)}
+										value={equalizerPreset}
+									>
+										{equalizerPreset === "Custom" ? <option value="Custom">Custom</option> : null}
+										{equalizerPresets.map((preset) => (
+											<option key={preset.name} value={preset.name}>{preset.name}</option>
+										))}
+									</select>
+								</label>
+								<button
+									className={`rounded-md border px-3 py-1.5 text-sm transition ${
+										equalizerEnabled
+											? "border-emerald-400/60 bg-emerald-500/15 text-emerald-300"
+											: "border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+									}`}
+									onClick={() => onEqualizerEnabledChange(!equalizerEnabled)}
+									type="button"
+								>
+									EQ {equalizerEnabled ? "On" : "Off"}
+								</button>
+								<button
+									className="rounded-md border border-zinc-700 px-3 py-1.5 text-sm text-zinc-200 transition hover:bg-zinc-800"
+									onClick={onEqualizerReset}
+									type="button"
+								>
+									Reset
+								</button>
+							</div>
+						</div>
+
+						<div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+							{equalizerBands.map((band, index) => (
+								<div key={band.frequency} className="rounded-lg border border-zinc-800 bg-zinc-900/70 px-3 py-2">
+									<div className="mb-2 flex items-center justify-between gap-2">
+										<span className="text-xs font-medium text-zinc-200">{band.label}</span>
+										<span className="text-xs text-zinc-500">{Math.round(band.gain)} dB</span>
+									</div>
+									<input
+										aria-label={`Equalizer ${band.label} hertz`}
+										className="h-1 w-full cursor-pointer accent-emerald-500"
+										max={12}
+										min={-12}
+										onChange={(event) => onEqualizerBandChange(index, Number(event.target.value))}
+										step={1}
+										type="range"
+										value={Math.round(band.gain)}
+									/>
+									<div className="mt-1 flex justify-between text-[10px] text-zinc-600">
+										<span>-12</span>
+										<span>0</span>
+										<span>+12</span>
+									</div>
+								</div>
+							))}
+						</div>
+					</div>
+				) : null}
+
 				<div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
 					<div className="flex min-w-0 items-center gap-3">
 						<div className="relative h-12 w-12 shrink-0 overflow-hidden rounded-md border border-zinc-800 bg-zinc-950">
@@ -138,6 +228,17 @@ export default function PlayBar({
 							type="button"
 						>
 							Next
+						</button>
+						<button
+							aria-expanded={showEqualizer}
+							aria-label="Toggle equalizer controls"
+							className={`rounded-md border px-3 py-1.5 text-sm transition ${
+								showEqualizer ? "border-emerald-400/60 bg-emerald-500/15 text-emerald-300" : "border-zinc-700 text-zinc-200 hover:bg-zinc-800"
+							}`}
+							onClick={() => setShowEqualizer((value) => !value)}
+							type="button"
+						>
+							EQ
 						</button>
 						<button
 							aria-label="Download current song"
