@@ -1375,6 +1375,7 @@ export default function PlayerPage() {
 				onPause={() => setIsPlaying(false)}
 				onPlay={() => setIsPlaying(true)}
 				onTimeUpdate={handleAudioTimeUpdate}
+				preload="metadata"
 				ref={audioRef}
 				src={streamUrl}
 			/>

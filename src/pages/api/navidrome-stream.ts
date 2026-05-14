@@ -1,4 +1,6 @@
 import type { NextApiRequest, NextApiResponse } from "next";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 type StreamQuery = {
 	credential?: string | string[];
@@ -76,8 +78,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 			res.setHeader("Content-Range", contentRange);
 		}
 
-		const bytes = await upstream.arrayBuffer();
-		return res.status(upstream.status).send(Buffer.from(bytes));
+		const body = upstream.body;
+		if (!body) {
+			return res.status(502).json({ error: "Upstream stream returned no body" });
+		}
+
+		res.status(upstream.status);
+		await pipeline(Readable.fromWeb(body), res);
+		return;
 	} catch {
 		return res.status(502).json({ error: "Failed to reach Navidrome stream endpoint" });
 	}
